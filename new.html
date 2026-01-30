@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Nurses OT Form</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body { font-family: Arial, sans-serif; background:#f4f6f8; padding:10px; margin:0; }
+h2 { text-align:center; font-size:1.5em; }
+
+.table-container { width:100%; overflow-x:auto; margin-bottom:10px; }
+table { width:100%; min-width:900px; border-collapse:collapse; background:#fff; }
+th,td { border:1px solid #ccc; padding:6px; text-align:center; font-size:14px; }
+th { background:#e9ecef; }
+
+input,select { width:100%; padding:8px; font-size:14px; box-sizing:border-box; }
+
+.btn { margin:5px 0; padding:12px 20px; cursor:pointer; font-size:16px; width:100%; max-width:300px; }
+
+.summary { margin-top:10px; background:#fff; padding:10px; font-size:14px; }
+</style>
+</head>
+
+<body>
+<h2>Nurses Duty & OT Form</h2>
+
+<div class="table-container">
+<table id="dutyTable">
+<thead>
+<tr>
+<th>Date</th>
+<th>Type</th>
+<th>Normal From</th>
+<th>Normal To</th>
+<th>Normal Hours</th>
+<th>Overflow</th>
+<th>Extra From</th>
+<th>Extra To</th>
+<th>Extra Hours</th>
+<th>Clear</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+
+<button class="btn" onclick="addRow()">Add Day</button>
+<button class="btn" onclick="calculate()">Calculate</button>
+<button class="btn" onclick="generateMonthEndPDF()">Month End PDF</button>
+
+<div class="summary">
+<p><b>Total Normal Hours:</b> <span id="normalHrs">0</span></p>
+<p><b>Total Extra (OT) Hours:</b> <span id="extraHrs">0</span></p>
+<p><b>Rate / Hour:</b> <input type="number" id="rate" value="283"></p>
+<p><b>Total OT Payment:</b> Rs. <span id="payment">0</span></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+<script>
+/* ---------- EXISTING FUNCTIONS (UNCHANGED LOGIC + SD/CL/DO) ---------- */
+
+function addRow(){
+  const row=document.createElement('tr');
+  row.innerHTML=`
+<td><input type="date"></td>
+<td>
+  <select class="dayType">
+    <option value="NONE">None</option>
+    <option value="SD">SD</option>
+    <option value="CL">CL</option>
+    <option value="DO">DO</option>
+  </select>
+</td>
+<td><input type="time" class="normalFrom"></td>
+<td><input type="time" class="normalTo"></td>
+<td class="normalH"></td>
+<td class="overflowH"></td>
+<td><input type="time" class="extraFrom"></td>
+<td><input type="time" class="extraTo"></td>
+<td class="extraH"></td>
+<td><button onclick="clearRow(this)">Clear</button></td>`;
+  document.querySelector('#dutyTable tbody').appendChild(row);
+  attachAutoSave(row);
+  applyDayType(row);
+  saveData();
+}
+
+function attachAutoSave(row){
+  row.querySelectorAll('input,select').forEach(i=>{
+    i.addEventListener('change',()=>{
+      applyDayType(row);
+      calculate();
+      saveData();
+    });
+  });
+}
+
+function applyDayType(row){
+  const type=row.querySelector('.dayType').value;
+  const ef=row.querySelector('.extraFrom');
+  const et=row.querySelector('.extraTo');
+
+  if(type==='CL'){
+    ef.value=''; et.value=''; ef.disabled=true; et.disabled=true;
+  }else{
+    ef.disabled=false; et.disabled=false;
+  }
+}
+
+function clearRow(btn){
+  const r=btn.parentElement.parentElement;
+  r.querySelectorAll('input').forEach(i=>i.value='');
+  r.querySelector('select').value='NONE';
+  r.querySelectorAll('.normalH,.extraH,.overflowH').forEach(td=>td.innerText='');
+  calculate();
+  saveData();
+}
+
+function calculate(){
+  let totalNormal=0,totalExtra=0;
+
+  document.querySelectorAll('#dutyTable tbody tr').forEach(r=>{
+    let normalH=0,overflowH=0,extraH=0;
+    const type=r.querySelector('.dayType').value;
+
+    const nFrom=r.querySelector('.normalFrom').value;
+    const nTo=r.querySelector('.normalTo').value;
+    if(nFrom && nTo){
+      let s=new Date('1970-01-01T'+nFrom);
+      let e=new Date('1970-01-01T'+nTo);
+      let diff=(e-s)/36e5; if(diff<0) diff+=24;
+
+      normalH=Math.min(diff,6);
+      overflowH=Math.max(diff-6,0);
+
+      // SD → 6 normal, rest OT automatically
+      if(type==='SD'){
+        // same logic, overflow counts as OT
+      }
+    }
+
+    // Extra hours (skip if CL)
+    if(type!=='CL'){
+      const eFrom=r.querySelector('.extraFrom').value;
+      const eTo=r.querySelector('.extraTo').value;
+      if(eFrom && eTo){
+        let s=new Date('1970-01-01T'+eFrom);
+        let e=new Date('1970-01-01T'+eTo);
+        extraH=(e-s)/36e5; if(extraH<0) extraH+=24;
+      }
+    }
+
+    r.querySelector('.normalH').innerText=normalH.toFixed(1);
+    r.querySelector('.overflowH').innerText=overflowH.toFixed(1);
+    r.querySelector('.extraH').innerText=extraH.toFixed(1);
+
+    totalNormal+=normalH;
+    totalExtra+=overflowH+extraH;
+  });
+
+  document.getElementById('normalHrs').innerText=totalNormal.toFixed(1);
+  document.getElementById('extraHrs').innerText=totalExtra.toFixed(1);
+  document.getElementById('payment').innerText=(totalExtra*Number(rate.value)).toFixed(2);
+}
+
+/* ---------- LOCAL STORAGE ---------- */
+function saveData(){
+  const rows=[];
+  document.querySelectorAll('#dutyTable tbody tr').forEach(r=>{
+    rows.push({
+      date:r.children[0].querySelector('input').value,
+      type:r.children[1].querySelector('select').value,
+      nf:r.children[2].querySelector('input').value,
+      nt:r.children[3].querySelector('input').value,
+      ef:r.children[6].querySelector('input').value,
+      et:r.children[7].querySelector('input').value
+    });
+  });
+  localStorage.setItem('nurseOTData',JSON.stringify({
+    rows:rows,
+    rate:rate.value
+  }));
+}
+
+function loadData(){
+  const data=JSON.parse(localStorage.getItem('nurseOTData'));
+  if(!data) return;
+
+  rate.value=data.rate||283;
+  data.rows.forEach(d=>{
+    addRow();
+    const r=document.querySelector('#dutyTable tbody tr:last-child');
+    r.children[0].querySelector('input').value=d.date;
+    r.children[1].querySelector('select').value=d.type;
+    r.children[2].querySelector('input').value=d.nf;
+    r.children[3].querySelector('input').value=d.nt;
+    r.children[6].querySelector('input').value=d.ef;
+    r.children[7].querySelector('input').value=d.et;
+    applyDayType(r);
+  });
+  calculate();
+}
+
+window.onload=loadData;
+
+/* ---------- MONTH END PDF ---------- */
+function generateMonthEndPDF(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(16);
+  doc.text("Nurses Duty & OT Report", 14, 20);
+
+  const headers=[["Date","Type","Normal From","Normal To","Normal Hrs","Overflow","Extra From","Extra To","Extra Hrs"]];
+  const rows=[];
+
+  document.querySelectorAll("#dutyTable tbody tr").forEach(r=>{
+    rows.push([
+      r.children[0].querySelector("input").value,
+      r.children[1].querySelector("select").value,
+      r.children[2].querySelector("input").value,
+      r.children[3].querySelector("input").value,
+      r.children[4].innerText,
+      r.children[5].innerText,
+      r.children[6].querySelector("input").value,
+      r.children[7].querySelector("input").value,
+      r.children[8].innerText
+    ]);
+  });
+
+  doc.autoTable({
+    head: headers,
+    body: rows,
+    startY: 30,
+    theme: 'grid',
+    headStyles: { fillColor: [230,230,230] }
+  });
+
+  const totalNormal=document.getElementById("normalHrs").innerText;
+  const totalExtra=document.getElementById("extraHrs").innerText;
+  const totalPayment=document.getElementById("payment").innerText;
+
+  doc.text(`Total Normal Hours: ${totalNormal}`, 14, doc.lastAutoTable.finalY+10);
+  doc.text(`Total Extra Hours: ${totalExtra}`, 14, doc.lastAutoTable.finalY+18);
+  doc.text(`Total OT Payment: Rs. ${totalPayment}`, 14, doc.lastAutoTable.finalY+26);
+
+  doc.save(`Month_End_Report.pdf`);
+}
+</script>
+</body>
+</html>
