@@ -48,6 +48,12 @@ input,select { width:100%; padding:8px; font-size:14px; box-sizing:border-box; }
 <button class="btn" onclick="addRow()">Add Day</button>
 <button class="btn" onclick="calculate()">Calculate</button>
 <button class="btn" onclick="generateMonthEndPDF()">Month End PDF</button>
+<button class="btn" onclick="resetAll()">Reset All</button>
+<button class="btn" onclick="backupData()">Backup Data</button>
+
+<!-- Hidden file input for restoring backup -->
+<input type="file" id="backupFile" accept=".json" style="display:none" onchange="restoreFromFile(event)">
+<button class="btn" onclick="document.getElementById('backupFile').click()">Restore From Backup</button>
 
 <div class="summary">
 <p><b>Total Normal Hours:</b> <span id="normalHrs">0</span></p>
@@ -135,14 +141,8 @@ function calculate(){
 
       normalH=Math.min(diff,6);
       overflowH=Math.max(diff-6,0);
-
-      // SD → 6 normal, rest OT automatically
-      if(type==='SD'){
-        // same logic, overflow counts as OT
-      }
     }
 
-    // Extra hours (skip if CL)
     if(type!=='CL'){
       const eFrom=r.querySelector('.extraFrom').value;
       const eTo=r.querySelector('.extraTo').value;
@@ -248,6 +248,80 @@ function generateMonthEndPDF(){
   doc.text(`Total OT Payment: Rs. ${totalPayment}`, 14, doc.lastAutoTable.finalY+26);
 
   doc.save(`Month_End_Report.pdf`);
+}
+
+/* ---------- RESET ALL DATA ---------- */
+function resetAll(){
+  document.querySelector('#dutyTable tbody').innerHTML='';
+
+  document.getElementById('normalHrs').innerText='0';
+  document.getElementById('extraHrs').innerText='0';
+  document.getElementById('payment').innerText='0';
+  document.getElementById('rate').value='283';
+
+  localStorage.removeItem('nurseOTData');
+}
+
+/* ---------- RESTORE DATA FROM LOCAL STORAGE ---------- */
+function restoreData(){
+  const data = JSON.parse(localStorage.getItem('nurseOTData'));
+  if(!data) return;
+
+  document.querySelector('#dutyTable tbody').innerHTML='';
+
+  rate.value = data.rate || 283;
+
+  data.rows.forEach(d=>{
+    addRow();
+    const r = document.querySelector('#dutyTable tbody tr:last-child');
+    r.children[0].querySelector('input').value = d.date;
+    r.children[1].querySelector('select').value = d.type;
+    r.children[2].querySelector('input').value = d.nf;
+    r.children[3].querySelector('input').value = d.nt;
+    r.children[6].querySelector('input').value = d.ef;
+    r.children[7].querySelector('input').value = d.et;
+    applyDayType(r);
+  });
+
+  calculate();
+}
+
+/* ---------- BACKUP DATA TO JSON FILE ---------- */
+function backupData(){
+  const data = JSON.parse(localStorage.getItem('nurseOTData'));
+  if(!data){
+    alert("No data to backup!");
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "NurseOT_Backup.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- RESTORE DATA FROM BACKUP FILE ---------- */
+function restoreFromFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const data = JSON.parse(e.target.result);
+      if(!data.rows) throw "Invalid backup file";
+
+      localStorage.setItem('nurseOTData', JSON.stringify(data));
+      restoreData(); // Existing restoreData function used
+      alert("Backup restored successfully!");
+    } catch(err) {
+      alert("Invalid backup file!");
+    }
+  };
+  reader.readAsText(file);
 }
 </script>
 </body>
